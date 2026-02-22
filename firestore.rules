@@ -1,0 +1,71 @@
+/*
+  NyayaOS Civic - Firestore Security Rules
+  
+  Multi-tenant isolation strategy:
+  - Users can only read/write data in their own pool.
+  - Public pools allow read access to specific collections.
+  - Superadmins have global read access.
+*/
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    function isPoolMember(poolId) {
+      return isSignedIn() && getUserData().poolId == poolId;
+    }
+    
+    function isPoolAdmin(poolId) {
+      return isPoolMember(poolId) && getUserData().role == 'admin';
+    }
+    
+    function isSuperAdmin() {
+      return isSignedIn() && getUserData().role == 'superadmin';
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if request.auth.uid == userId || isSuperAdmin();
+    }
+
+    // Pools collection
+    match /pools/{poolId} {
+      allow read: if isSignedIn() || resource.data.isPrivate == false;
+      allow create: if isSignedIn();
+      allow update, delete: if isPoolAdmin(poolId) || isSuperAdmin();
+      
+      // Sub-collections
+      match /proposals/{proposalId} {
+        allow read: if isPoolMember(poolId) || get(/databases/$(database)/documents/pools/$(poolId)).data.isPrivate == false;
+        allow create: if isPoolMember(poolId);
+        allow update: if isPoolMember(poolId) || isSuperAdmin();
+      }
+      
+      match /cases/{caseId} {
+        allow read: if isPoolMember(poolId) || get(/databases/$(database)/documents/pools/$(poolId)).data.isPrivate == false;
+        allow write: if isPoolAdmin(poolId) || isSuperAdmin();
+      }
+      
+      match /auditLogs/{logId} {
+        allow read: if isPoolMember(poolId);
+        allow create: if false; // Only via Cloud Functions
+      }
+    }
+
+    // Federation Groups
+    match /federationGroups/{fedId} {
+      allow read: if isSignedIn() && getUserData().poolId in resource.data.memberPools;
+      allow write: if isSuperAdmin();
+    }
+  }
+}

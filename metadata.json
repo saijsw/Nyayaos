@@ -1,0 +1,7 @@
+{
+  "name": "NyayaOS Civic",
+  "description": "Open-core civic infrastructure with SaaS premium governance features, including multi-tenant legal pools, reputation-weighted voting, and federation modules.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
